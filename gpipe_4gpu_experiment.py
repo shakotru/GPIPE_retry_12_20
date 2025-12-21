@@ -34,7 +34,7 @@ def main():
 
     optimizer.zero_grad()
     out = model(x)
-    loss = loss_fn(out, y)
+    loss = loss_fn(out, y.to(out.device))
     loss.backward()
     optimizer.step()
 
