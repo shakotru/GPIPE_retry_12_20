@@ -1,73 +1,143 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import time
+import csv
+from datetime import datetime
+import itertools
+import os
 
-DEPTHS = [8, 16, 32]
-HIDDENS = [128, 256]
-BATCH_SIZES = [8, 32]
-
-INPUT_DIM = 128
+# -----------------------------
+# Configurable experiment grid
+# -----------------------------
+DEPTHS = [8, 16, 32, 64, 128]
+HIDDEN_DIMS = [128, 256, 512, 1024]
+BATCH_SIZES = [8, 32, 64, 128]
+CHUNKS = [1, 2, 4, 8, 16]   # kept for consistency (no real effect on 1 GPU)
+INPUT_DIM = 1024
 NUM_CLASSES = 10
-LR = 1e-3
+STEPS = 5  # warm runs already amortized
 
+device = torch.device("cuda:0")
 
-def build_model(depth, hidden):
-    layers = []
-    dim = INPUT_DIM
-    for _ in range(depth):
-        layers.append(nn.Linear(dim, hidden))
+# -----------------------------
+# Model definition
+# -----------------------------
+class MLP(nn.Module):
+    def __init__(self, depth, hidden_dim):
+        super().__init__()
+        layers = []
+        layers.append(nn.Linear(INPUT_DIM, hidden_dim))
         layers.append(nn.ReLU())
-        dim = hidden
-    layers.append(nn.Linear(dim, NUM_CLASSES))
-    return nn.Sequential(*layers)
+        for _ in range(depth - 2):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.ReLU())
+        layers.append(nn.Linear(hidden_dim, NUM_CLASSES))
+        self.net = nn.Sequential(*layers)
 
+    def forward(self, x):
+        return self.net(x)
 
-def run_experiment(depth, hidden, batch_size):
-    device = "cuda:0"
-    torch.cuda.set_device(0)
-    torch.cuda.reset_peak_memory_stats()
+# -----------------------------
+# CSV setup
+# -----------------------------
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+csv_name = f"gpipe_1gpu_results_{timestamp}.csv"
 
-    model = build_model(depth, hidden).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=LR)
-    loss_fn = nn.CrossEntropyLoss()
+with open(csv_name, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "gpu_count",
+        "depth",
+        "hidden_dim",
+        "batch_size",
+        "chunks",
+        "INPUT_DIM",
+        "NUM_CLASSES",
+        "forward_time_s",
+        "backward_time_s",
+        "total_step_time_s",
+        "throughput_samples_per_s",
+        "max_memory_gb",
+        "loss"
+    ])
+
+# -----------------------------
+# Main experiment loop
+# -----------------------------
+loss_fn = nn.CrossEntropyLoss()
+
+for depth, hidden_dim, batch_size, chunks in itertools.product(
+    DEPTHS, HIDDEN_DIMS, BATCH_SIZES, CHUNKS
+):
+    model = MLP(depth, hidden_dim).to(device)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 
     x = torch.randn(batch_size, INPUT_DIM, device=device)
     y = torch.randint(0, NUM_CLASSES, (batch_size,), device=device)
 
     # Warmup
-    optimizer.zero_grad()
-    loss_fn(model(x), y).backward()
-    optimizer.step()
+    for _ in range(3):
+        optimizer.zero_grad()
+        out = model(x)
+        loss = loss_fn(out, y)
+        loss.backward()
+        optimizer.step()
 
+    torch.cuda.reset_peak_memory_stats(device)
+    torch.cuda.synchronize()
+
+    # -----------------------------
+    # Timed iteration
+    # -----------------------------
+    optimizer.zero_grad()
+
+    # Forward (WITH autograd)
     torch.cuda.synchronize()
     t0 = time.time()
-
-    optimizer.zero_grad()
     out = model(x)
+    torch.cuda.synchronize()
+    t1 = time.time()
+    forward_time = t1 - t0
+
+    # Backward
+    torch.cuda.synchronize()
+    t2 = time.time()
     loss = loss_fn(out, y)
     loss.backward()
     optimizer.step()
-
     torch.cuda.synchronize()
-    t1 = time.time()
+    t3 = time.time()
+    backward_time = t3 - t2
 
-    step_time = t1 - t0
-    throughput = batch_size / step_time
-    mem = torch.cuda.max_memory_allocated() / 1024**3
+    total_time = t3 - t0
+    throughput = batch_size / total_time
+    max_mem = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+
+    # -----------------------------
+    # Write CSV row
+    # -----------------------------
+    with open(csv_name, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            1,
+            depth,
+            hidden_dim,
+            batch_size,
+            chunks,
+            INPUT_DIM,
+            NUM_CLASSES,
+            forward_time,
+            backward_time,
+            total_time,
+            throughput,
+            max_mem,
+            loss.item()
+        ])
 
     print(
-        f"DEPTH={depth}, HIDDEN={hidden}, BS={batch_size} | "
-        f"Loss={loss.item():.4f}, "
-        f"Time={step_time:.4f}s, "
-        f"Throughput={throughput:.1f}/s, "
-        f"Mem={mem:.2f}GB"
+        f"[1 GPU] depth={depth}, hidden={hidden_dim}, "
+        f"batch={batch_size}, chunks={chunks} | "
+        f"step={total_time:.4f}s, throughput={throughput:.1f}"
     )
 
-
-if __name__ == "__main__":
-    print("==== 1 GPU BASELINE ====")
-    for d in DEPTHS:
-        for h in HIDDENS:
-            for b in BATCH_SIZES:
-                run_experiment(d, h, b)
+print(f"\n✅ Results saved to: {csv_name}")
