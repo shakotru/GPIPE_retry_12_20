@@ -8,7 +8,7 @@ from datetime import datetime
 # ---------------------------
 # Config
 # ---------------------------
-DEPTH = 225
+DEPTH = 128
 HIDDEN_DIM = 4096
 BATCH_SIZE = 512
 INPUT_DIM = 1024
@@ -18,9 +18,14 @@ DEVICES = [torch.device(f"cuda:{i}") for i in range(4)]
 NUM_STEPS = 12
 WARMUP_STEPS = 3
 
-INITIAL_CHUNKS = 2
+# ---------------------------
+# Adaptive controller params
+# ---------------------------
+num_stages = len(DEVICES)
 MIN_CHUNKS = 1
-MAX_CHUNKS = 16
+MAX_CHUNKS = 4 * num_stages
+#INITIAL_CHUNKS = MAX_CHUNKS
+INITIAL_CHUNKS = 1
 ADAPT_EVERY = 2
 IMPROVE_THRESH = 0.95
 REGRESS_THRESH = 1.05
@@ -42,7 +47,6 @@ class MLP(nn.Module):
 
 model = MLP(DEPTH, HIDDEN_DIM)
 loss_fn = nn.CrossEntropyLoss()
-
 x = torch.randn(BATCH_SIZE, INPUT_DIM, device=DEVICES[0])
 y = torch.randint(0, NUM_CLASSES, (BATCH_SIZE,), device=DEVICES[0])
 
@@ -72,12 +76,23 @@ for _ in range(WARMUP_STEPS):
 for d in DEVICES: torch.cuda.synchronize(d)
 
 # ---------------------------
-# Adaptive run
+# CSV for logging
+# ---------------------------
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+csv_name = f"adaptive_gpipe_4gpu_{timestamp}.csv"
+with open(csv_name,"w",newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "step","depth","hidden_dim","batch_size","chunks","step_time_s","throughput_samples_per_s","loss"
+    ])
+
+# ---------------------------
+# Adaptive run with probing
 # ---------------------------
 prev_step_time = None
 step_times = []
 
-print("\n[Adaptive Run]")
+print("\n[Adaptive Run with Probing]")
 for step in range(NUM_STEPS):
     optimizer.zero_grad()
     for d in DEVICES: torch.cuda.synchronize(d)
@@ -95,31 +110,45 @@ for step in range(NUM_STEPS):
     step_times.append(step_time)
     throughput = BATCH_SIZE / step_time
 
-    print(f"[Step {step}] chunks={chunks} | step_time={step_time:.4f}s | throughput={throughput:.1f} samples/s")
+    # Print step info including model params
+    print(f"[Step {step}] depth={DEPTH} hidden={HIDDEN_DIM} batch={BATCH_SIZE} chunks={chunks} "
+          f"| step_time={step_time:.4f}s | throughput={throughput:.1f}")
 
     # ---------------------------
-    # Adaptive controller
+    # Probing mechanism
     # ---------------------------
-    if step % ADAPT_EVERY == 0 and prev_step_time is not None:
-        ratio = step_time / prev_step_time
-        if ratio < IMPROVE_THRESH:
-            new_chunks = min(chunks * 2, MAX_CHUNKS)
-            decision = "increase"
-        elif ratio > REGRESS_THRESH:
-            new_chunks = max(chunks // 2, MIN_CHUNKS)
-            decision = "decrease"
-        else:
-            new_chunks = chunks
-            decision = "keep"
+    if step % ADAPT_EVERY == 0 and step > 0:
+        for test_chunks in [chunks//2, chunks*2]:
+            if MIN_CHUNKS <= test_chunks <= MAX_CHUNKS:
+                temp_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=test_chunks)
+                temp_optimizer = torch.optim.SGD(temp_model.parameters(), lr=0.01)
+                temp_optimizer.zero_grad()
+                for d in DEVICES: torch.cuda.synchronize(d)
+                probe_start = time.time()
+                out_probe = temp_model(x)
+                loss_probe = loss_fn(out_probe, y.to(out_probe.device))
+                loss_probe.backward()
+                temp_optimizer.step()
+                for d in DEVICES: torch.cuda.synchronize(d)
+                probe_time = time.time() - probe_start
+                ratio = probe_time / step_time
+                print(f"  [Probe] Testing chunks={test_chunks} | probe_time={probe_time:.4f}s | ratio={ratio:.3f}")
 
-        print(f"  [Controller] prev={prev_step_time:.4f}s current={step_time:.4f}s ratio={ratio:.3f} → {decision}")
-
-        if new_chunks != chunks:
-            print(f"  [Controller] Rebuilding GPipe: {chunks} → {new_chunks}")
-            chunks = new_chunks
-            gpipe_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=chunks)
-            optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01)
+                if ratio < 1.0:
+                    print(f"  [Controller] Switching chunks {chunks} → {test_chunks}")
+                    chunks = test_chunks
+                    gpipe_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=chunks)
+                    optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01)
+                    break
 
     prev_step_time = step_time
 
+    # ---------------------------
+    # Log to CSV
+    # ---------------------------
+    with open(csv_name,"a",newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([step, DEPTH, HIDDEN_DIM, BATCH_SIZE, chunks, step_time, throughput, loss.item()])
+
 print("\n[Summary] Step times:", ["{:.3f}".format(t) for t in step_times])
+print(f"\n✅ CSV log saved to: {csv_name}")
