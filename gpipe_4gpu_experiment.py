@@ -6,15 +6,18 @@ import time, csv
 from datetime import datetime
 import itertools
 
-DEPTHS = [8, 16, 32, 64, 128]
-HIDDEN_DIMS = [128, 256, 512, 1024]
-BATCH_SIZES = [8, 32, 64, 128]
-CHUNKS = [1, 2, 4, 8, 16]
+# !!!!!Model setup params!!!!!
+DEPTHS = [225] # list of model depths to test
+HIDDEN_DIMS = [4096] # size of the model's hidden layers
+BATCH_SIZES = [512] # batch sizes to test
+CHUNKS = [4] # number of microbatches
+INPUT_DIM = 1024  # input feature size
+NUM_CLASSES = 10  # number of output classes
+devices = [torch.device(f"cuda:{i}") for i in range(4)] # list of CUDA devices
 
-INPUT_DIM = 1024
-NUM_CLASSES = 10
-devices = [torch.device(f"cuda:{i}") for i in range(4)]
-
+# -----------------------------
+# model definition
+# -----------------------------
 class MLP(nn.Module):
     def __init__(self, depth, hidden_dim):
         super().__init__()
@@ -27,6 +30,9 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+# -----------------------------------------
+# CSV setup for outputting test results
+#------------------------------------------
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 csv_name = f"gpipe_4gpu_results_{timestamp}.csv"
 
@@ -38,20 +44,24 @@ with open(csv_name,"w",newline="") as f:
         "throughput_samples_per_s","max_memory_gb","loss"
     ])
 
+# -----------------------------
+# main experiment loop
+# -----------------------------
 loss_fn = nn.CrossEntropyLoss()
 
 for depth, hidden_dim, batch_size, chunks in itertools.product(DEPTHS,HIDDEN_DIMS,BATCH_SIZES,CHUNKS):
-    model = MLP(depth, hidden_dim)
-    sample = torch.randn(1, INPUT_DIM, device=devices[0])
-    balance = balance_by_time(len(devices), model.net, sample)
-    gpipe_model = GPipe(model.net, balance=balance, devices=devices, chunks=chunks)
+    model = MLP(depth, hidden_dim) # create the model
+    sample = torch.randn(1, INPUT_DIM, device=devices[0]) # sample input for balancing
+    balance = balance_by_time(len(devices), model.net, sample) # balance layers across devices
+    gpipe_model = GPipe(model.net, balance=balance, devices=devices, chunks=chunks) # wrap model with GPipe
 
-    optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01)
+    optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01) # optimizer setup
 
+    # generate random input data
     x = torch.randn(batch_size, INPUT_DIM, device=devices[0])
     y = torch.randint(0, NUM_CLASSES, (batch_size,), device=devices[0])
 
-    # Warmup
+    # warmup runs (not timed)
     for _ in range(3):
         optimizer.zero_grad()
         out = gpipe_model(x)
@@ -61,20 +71,19 @@ for depth, hidden_dim, batch_size, chunks in itertools.product(DEPTHS,HIDDEN_DIM
         optimizer.step()
 
     for d in devices:
-        torch.cuda.reset_peak_memory_stats(d)
+        torch.cuda.reset_peak_memory_stats(d) # reset memory stats
 
-    # Forward timing
-    for d in devices: torch.cuda.synchronize(d)
+    # forward timing
+    for d in devices: torch.cuda.synchronize(d) # synchronize devices
     t0 = time.time()
-    out = gpipe_model(x)
-    for d in devices: torch.cuda.synchronize(d)
+    out = gpipe_model(x) # forward pass
+    for d in devices: torch.cuda.synchronize(d) # synchronize devices
     t1 = time.time()
     forward_time = t1 - t0
 
-    # Move target to last stage device
-    y_device = y.to(out.device)
+    y_device = y.to(out.device) # move target to last stage device
 
-    # Backward timing
+    # backward timing
     optimizer.zero_grad()
     for d in devices: torch.cuda.synchronize(d)
     t2 = time.time()

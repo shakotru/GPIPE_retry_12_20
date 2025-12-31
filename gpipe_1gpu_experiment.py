@@ -6,21 +6,19 @@ from datetime import datetime
 import itertools
 import os
 
-# -----------------------------
-# Configurable experiment grid
-# -----------------------------
-DEPTHS = [8, 16, 32, 64, 128]
-HIDDEN_DIMS = [128, 256, 512, 1024]
-BATCH_SIZES = [8, 32, 64, 128]
-CHUNKS = [1, 2, 4, 8, 16]   # kept for consistency (no real effect on 1 GPU)
-INPUT_DIM = 1024
+# !!!!!Model setup params!!!!!
+DEPTHS = [175, 200, 225] # list of all model depths to test
+HIDDEN_DIMS = [4096] #aka model width - the size of the model's hidden layers
+BATCH_SIZES = [512] #
+CHUNKS = [4]   # number of microbatches in the experiment - no real effect on 1 GPU
+INPUT_DIM = 1024  
 NUM_CLASSES = 10
-STEPS = 5  # warm runs already amortized
+STEPS = 5  # defining how many warmup runs will be done
 
 device = torch.device("cuda:0")
 
 # -----------------------------
-# Model definition
+# model definition
 # -----------------------------
 class MLP(nn.Module):
     def __init__(self, depth, hidden_dim):
@@ -37,9 +35,9 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-# -----------------------------
-# CSV setup
-# -----------------------------
+# -----------------------------------------
+# CSV setup for outputting test results
+#------------------------------------------
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 csv_name = f"gpipe_1gpu_results_{timestamp}.csv"
 
@@ -62,7 +60,7 @@ with open(csv_name, "w", newline="") as f:
     ])
 
 # -----------------------------
-# Main experiment loop
+# main experiment loop
 # -----------------------------
 loss_fn = nn.CrossEntropyLoss()
 
@@ -70,12 +68,13 @@ for depth, hidden_dim, batch_size, chunks in itertools.product(
     DEPTHS, HIDDEN_DIMS, BATCH_SIZES, CHUNKS
 ):
     model = MLP(depth, hidden_dim).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01) #optimizer setup with learning rate 0.01 for updating model params.
 
+    #generating random input training data...
     x = torch.randn(batch_size, INPUT_DIM, device=device)
     y = torch.randint(0, NUM_CLASSES, (batch_size,), device=device)
 
-    # Warmup
+    # warmup runs - discarded (not timed) since first few runs have some overhead which make them slower
     for _ in range(3):
         optimizer.zero_grad()
         out = model(x)
@@ -83,23 +82,23 @@ for depth, hidden_dim, batch_size, chunks in itertools.product(
         loss.backward()
         optimizer.step()
 
-    torch.cuda.reset_peak_memory_stats(device)
-    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats(device) #resets the peak mem use stats for that specific device
+    torch.cuda.synchronize() #sync all devices (make sure previous operations are finished before proceeding)
 
     # -----------------------------
-    # Timed iteration
+    # timed training iterations
     # -----------------------------
-    optimizer.zero_grad()
+    optimizer.zero_grad() #clear the gradients from previous steps
 
-    # Forward (WITH autograd)
+    # forward pass and calculate time
     torch.cuda.synchronize()
     t0 = time.time()
     out = model(x)
     torch.cuda.synchronize()
-    t1 = time.time()
-    forward_time = t1 - t0
+    t1 = time.time()  
+    forward_time = t1 - t0 
 
-    # Backward
+    # backward pass and calculate time
     torch.cuda.synchronize()
     t2 = time.time()
     loss = loss_fn(out, y)
@@ -109,12 +108,13 @@ for depth, hidden_dim, batch_size, chunks in itertools.product(
     t3 = time.time()
     backward_time = t3 - t2
 
+    #calculate performance stats...
     total_time = t3 - t0
     throughput = batch_size / total_time
     max_mem = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
 
     # -----------------------------
-    # Write CSV row
+    # write CSV
     # -----------------------------
     with open(csv_name, "a", newline="") as f:
         writer = csv.writer(f)
