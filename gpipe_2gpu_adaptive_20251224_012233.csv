@@ -1,0 +1,48 @@
+step,depth,hidden_dim,batch_size,chunks,step_time_s,throughput_samples_per_s,loss
+0,128,4096,512,8,0.6489310264587402,788.9898604386633,2.3026113510131836
+1,128,4096,512,8,0.6480429172515869,790.0711301211991,2.302583694458008
+2,128,4096,512,8,0.6480951309204102,790.0074781812804,2.302556276321411
+3,128,4096,512,4,0.5437977313995361,941.526546428025,2.302502393722534
+4,128,4096,512,4,0.543459415435791,942.1126683202936,2.302475690841675
+5,128,4096,512,2,0.4309577941894531,1188.0513751073265,2.3023951053619385
+6,128,4096,512,2,0.4309089183807373,1188.186129737081,2.3023681640625
+7,128,4096,512,1,0.3805556297302246,1345.4011976197964,2.3022890090942383
+8,128,4096,512,1,0.3831207752227783,1336.3932031675404,2.302262306213379
+9,128,4096,512,1,0.38065338134765625,1345.05569919628,2.3022100925445557
+10,128,4096,512,1,0.3805713653564453,1345.3455688145582,2.3021833896636963
+11,128,4096,512,1,0.3805828094482422,1345.305114390959,2.302131414413452
+
+[Adaptive Run with Probing]
+[Step 0] depth=128 hidden=4096 batch=512 chunks=8 | step_time=0.6489s | throughput=789.0
+[Step 1] depth=128 hidden=4096 batch=512 chunks=8 | step_time=0.6480s | throughput=790.1
+[Step 2] depth=128 hidden=4096 batch=512 chunks=8 | step_time=0.6481s | throughput=790.0
+  [Controller] prev=0.6480s current=0.6481s ratio=1.000 → keep
+  [Probe] Testing chunks=4 | probe_time=0.5427s | ratio=0.837
+  [Controller] Switching chunks 8 → 4
+[Step 3] depth=128 hidden=4096 batch=512 chunks=4 | step_time=0.5438s | throughput=941.5
+[Step 4] depth=128 hidden=4096 batch=512 chunks=4 | step_time=0.5435s | throughput=942.1
+  [Controller] prev=0.5438s current=0.5435s ratio=0.999 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4310s | ratio=0.793
+  [Controller] Switching chunks 4 → 2
+  [Probe] Testing chunks=8 | probe_time=0.6487s | ratio=1.194
+[Step 5] depth=128 hidden=4096 batch=512 chunks=2 | step_time=0.4310s | throughput=1188.1
+[Step 6] depth=128 hidden=4096 batch=512 chunks=2 | step_time=0.4309s | throughput=1188.2
+  [Controller] prev=0.4310s current=0.4309s ratio=1.000 → keep
+/home/kotrus/gpipe_12_19/gpipe_venv/lib/python3.10/site-packages/torch/nn/modules/linear.py:125: UserWarning: Attempting to run cuBLAS, but there was no current CUDA context! Attempting to set the primary context... (Triggered internally at /shared_tmp/build_wheels_tmp.115664/python-3.10/torch/aten/src/ATen/cuda/CublasHandlePool.cpp:180.)
+  return F.linear(input, self.weight, self.bias)
+  [Probe] Testing chunks=1 | probe_time=0.3847s | ratio=0.893
+  [Controller] Switching chunks 2 → 1
+  [Probe] Testing chunks=4 | probe_time=0.5434s | ratio=1.261
+[Step 7] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.4
+[Step 8] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3831s | throughput=1336.4
+  [Controller] prev=0.3806s current=0.3831s ratio=1.007 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4321s | ratio=1.128
+[Step 9] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3807s | throughput=1345.1
+[Step 10] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.3
+  [Controller] prev=0.3807s current=0.3806s ratio=1.000 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4309s | ratio=1.132
+[Step 11] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.3
+
+[Summary] Step times: ['0.649', '0.648', '0.648', '0.544', '0.543', '0.431', '0.431', '0.381', '0.383', '0.381', '0.381', '0.381']
+
+✅ CSV saved to: gpipe_2gpu_adaptive_20251224_012233.csv

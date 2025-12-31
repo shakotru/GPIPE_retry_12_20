@@ -1,0 +1,42 @@
+step,depth,hidden_dim,batch_size,chunks,step_time_s,throughput_samples_per_s,loss
+0,128,4096,512,1,0.3810567855834961,1343.6317613816957,2.302009344100952
+1,128,4096,512,1,0.3809516429901123,1344.0026035359272,2.301966905593872
+2,128,4096,512,1,0.380511999130249,1345.5554651897921,2.301924467086792
+3,128,4096,512,1,0.38060736656188965,1345.2183141514286,2.301839828491211
+4,128,4096,512,1,0.3805959224700928,1345.2587633548096,2.301798105239868
+5,128,4096,512,1,0.3805105686187744,1345.5605237418836,2.301713705062866
+6,128,4096,512,1,0.3805966377258301,1345.256235208333,2.3016722202301025
+7,128,4096,512,1,0.38062429428100586,1345.1584874979173,2.301589012145996
+8,128,4096,512,1,0.38049769401550293,1345.6060524223287,2.3015477657318115
+9,128,4096,512,1,0.3808565139770508,1344.338303823396,2.3014659881591797
+10,128,4096,512,1,0.38069701194763184,1344.9015461945103,2.301424503326416
+11,128,4096,512,1,0.3810000419616699,1343.8318729936234,2.3013429641723633
+
+
+[Adaptive Run with Probing]
+[Step 0] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3811s | throughput=1343.6
+[Step 1] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3810s | throughput=1344.0
+[Step 2] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3805s | throughput=1345.6
+  [Controller] prev=0.3810s current=0.3805s ratio=0.999 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4313s | ratio=1.133
+[Step 3] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.2
+[Step 4] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.3
+  [Controller] prev=0.3806s current=0.3806s ratio=1.000 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4288s | ratio=1.127
+[Step 5] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3805s | throughput=1345.6
+[Step 6] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.3
+  [Controller] prev=0.3805s current=0.3806s ratio=1.000 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4288s | ratio=1.127
+[Step 7] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3806s | throughput=1345.2
+[Step 8] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3805s | throughput=1345.6
+  [Controller] prev=0.3806s current=0.3805s ratio=1.000 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4293s | ratio=1.128
+[Step 9] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3809s | throughput=1344.3
+[Step 10] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3807s | throughput=1344.9
+  [Controller] prev=0.3809s current=0.3807s ratio=1.000 → keep
+  [Probe] Testing chunks=2 | probe_time=0.4292s | ratio=1.127
+[Step 11] depth=128 hidden=4096 batch=512 chunks=1 | step_time=0.3810s | throughput=1343.8
+
+[Summary] Step times: ['0.381', '0.381', '0.381', '0.381', '0.381', '0.381', '0.381', '0.381', '0.380', '0.381', '0.381', '0.381']
+
+✅ CSV saved to: gpipe_2gpu_adaptive_20251224_012413.csv

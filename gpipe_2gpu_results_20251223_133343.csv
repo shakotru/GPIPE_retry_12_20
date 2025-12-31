@@ -1,0 +1,1 @@
+gpu_count,depth,hidden_dim,batch_size,chunks,forward_time_s,backward_time_s,total_step_time_s,throughput_samples_per_s,max_memory_gb,loss

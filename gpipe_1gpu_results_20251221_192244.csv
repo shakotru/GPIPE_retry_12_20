@@ -1,0 +1,2 @@
+gpu_count,depth,hidden_dim,batch_size,chunks,INPUT_DIM,NUM_CLASSES,forward_time_s,backward_time_s,total_step_time_s,throughput_samples_per_s,max_memory_gb,loss
+1,192,4096,512,16,1024,10,0.2053394317626953,0.3907489776611328,0.5962860584259033,858.6482825903987,23.81304359436035,2.3023180961608887
