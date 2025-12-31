@@ -6,32 +6,32 @@ import time, csv
 from datetime import datetime
 
 # ---------------------------
-# Config
+# config
 # ---------------------------
-DEPTH = 128
-HIDDEN_DIM = 4096
-BATCH_SIZE = 512
-INPUT_DIM = 1024
-NUM_CLASSES = 10
-DEVICES = [torch.device(f"cuda:{i}") for i in range(4)]
+DEPTH = 128 #number of layers in the model
+HIDDEN_DIM = 4096 #size of the model's hidden layers
+BATCH_SIZE = 512 #batch size for training
+INPUT_DIM = 1024 #input feature size
+NUM_CLASSES = 10 #number of output classes
+DEVICES = [torch.device(f"cuda:{i}") for i in range(4)] #list of CUDA devices
 
-NUM_STEPS = 12
-WARMUP_STEPS = 3
+NUM_STEPS = 12 #total number of training steps
+WARMUP_STEPS = 3 #number of warmup steps (not timed)
 
 # ---------------------------
-# Adaptive controller params
+# adaptive controller params
 # ---------------------------
 num_stages = len(DEVICES)
-MIN_CHUNKS = 1
-MAX_CHUNKS = 4 * num_stages
-#INITIAL_CHUNKS = MAX_CHUNKS
-INITIAL_CHUNKS = 1
-ADAPT_EVERY = 2
-IMPROVE_THRESH = 0.95
-REGRESS_THRESH = 1.05
+MIN_CHUNKS = 1 #minimum number of chunks
+MAX_CHUNKS = 4 * num_stages # maximum number of chunks
+#INITIAL_CHUNKS = MAX_CHUNKS 
+INITIAL_CHUNKS = 1 #initial number of chunks
+ADAPT_EVERY = 2 #adapt chunks every N steps
+IMPROVE_THRESH = 0.95 # when to detect significant improvement in step time
+REGRESS_THRESH = 1.05 # when to detect significant worsening of step time
 
 # ---------------------------
-# Model
+# model
 # ---------------------------
 class MLP(nn.Module):
     def __init__(self, depth, hidden_dim):
@@ -45,34 +45,34 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-model = MLP(DEPTH, HIDDEN_DIM)
-loss_fn = nn.CrossEntropyLoss()
-x = torch.randn(BATCH_SIZE, INPUT_DIM, device=DEVICES[0])
-y = torch.randint(0, NUM_CLASSES, (BATCH_SIZE,), device=DEVICES[0])
+model = MLP(DEPTH, HIDDEN_DIM) #create the model
+loss_fn = nn.CrossEntropyLoss() #loss function
+x = torch.randn(BATCH_SIZE, INPUT_DIM, device=DEVICES[0]) # random input data
+y = torch.randint(0, NUM_CLASSES, (BATCH_SIZE,), device=DEVICES[0]) # random target data
 
 # ---------------------------
-# Pipeline balance
+# pipeline balance
 # ---------------------------
-sample = torch.randn(1, INPUT_DIM, device=DEVICES[0])
-balance = balance_by_time(len(DEVICES), model.net, sample)
+sample = torch.randn(1, INPUT_DIM, device=DEVICES[0]) # sample input for balancing
+balance = balance_by_time(len(DEVICES), model.net, sample) # balance layers across devices
 
 # ---------------------------
-# Initialize GPipe
+# initialize GPipe
 # ---------------------------
-chunks = INITIAL_CHUNKS
-gpipe_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=chunks)
-optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01)
+chunks = INITIAL_CHUNKS # set initial chunks
+gpipe_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=chunks) # wrap model with GPipe
+optimizer = torch.optim.SGD(gpipe_model.parameters(), lr=0.01) # optimizer setup
 
 # ---------------------------
-# Warmup
+# warmup
 # ---------------------------
 print("\n[Warmup]")
 for _ in range(WARMUP_STEPS):
     optimizer.zero_grad()
-    out = gpipe_model(x)
-    loss = loss_fn(out, y.to(out.device))
-    loss.backward()
-    optimizer.step()
+    out = gpipe_model(x) # forward pass
+    loss = loss_fn(out, y.to(out.device)) # compute loss
+    loss.backward() # backward pass
+    optimizer.step() # update parameters
 for d in DEVICES: torch.cuda.synchronize(d)
 
 # ---------------------------
@@ -87,28 +87,28 @@ with open(csv_name,"w",newline="") as f:
     ])
 
 # ---------------------------
-# Adaptive run with probing
+# adaptive run with probing
 # ---------------------------
-prev_step_time = None
-step_times = []
+prev_step_time = None # previous step time for comparison
+step_times = [] # list to store step times
 
 print("\n[Adaptive Run with Probing]")
 for step in range(NUM_STEPS):
     optimizer.zero_grad()
-    for d in DEVICES: torch.cuda.synchronize(d)
+    for d in DEVICES: torch.cuda.synchronize(d) #synchronize devices
     t0 = time.time()
 
-    out = gpipe_model(x)
-    loss = loss_fn(out, y.to(out.device))
-    loss.backward()
-    optimizer.step()
+    out = gpipe_model(x) # forward pass
+    loss = loss_fn(out, y.to(out.device)) # compute loss
+    loss.backward() # backward pass
+    optimizer.step() # update parameters
 
-    for d in DEVICES: torch.cuda.synchronize(d)
+    for d in DEVICES: torch.cuda.synchronize(d) #synchronize devices
     t1 = time.time()
 
-    step_time = t1 - t0
+    step_time = t1 - t0 # calculate step time
     step_times.append(step_time)
-    throughput = BATCH_SIZE / step_time
+    throughput = BATCH_SIZE / step_time # calculate throughput
 
     # Print step info including model params
     print(f"[Step {step}] depth={DEPTH} hidden={HIDDEN_DIM} batch={BATCH_SIZE} chunks={chunks} "
@@ -123,15 +123,15 @@ for step in range(NUM_STEPS):
                 temp_model = GPipe(model.net, balance=balance, devices=DEVICES, chunks=test_chunks)
                 temp_optimizer = torch.optim.SGD(temp_model.parameters(), lr=0.01)
                 temp_optimizer.zero_grad()
-                for d in DEVICES: torch.cuda.synchronize(d)
+                for d in DEVICES: torch.cuda.synchronize(d) #synchronize devices
                 probe_start = time.time()
                 out_probe = temp_model(x)
                 loss_probe = loss_fn(out_probe, y.to(out_probe.device))
                 loss_probe.backward()
                 temp_optimizer.step()
-                for d in DEVICES: torch.cuda.synchronize(d)
+                for d in DEVICES: torch.cuda.synchronize(d) #synchronize devices
                 probe_time = time.time() - probe_start
-                ratio = probe_time / step_time
+                ratio = probe_time / step_time # ratio of probe time to current step time
                 print(f"  [Probe] Testing chunks={test_chunks} | probe_time={probe_time:.4f}s | ratio={ratio:.3f}")
 
                 if ratio < 1.0:
